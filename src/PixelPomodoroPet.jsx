@@ -1099,6 +1099,14 @@ export default function PixelPomodoroPet() {
               </button>
             </div>
           )}
+
+          <div className="border-t-2 border-dashed border-[#3D262A] pt-3 mt-4 text-center">
+            <p className="text-xs font-bold" style={{ opacity: 0.65 }}>
+              Pixel Pomodoro Pet · v1.0.0
+              <br />
+              Designed & Developed by Thu Ta
+            </p>
+          </div>
         </Modal>
       )}
     </div>
