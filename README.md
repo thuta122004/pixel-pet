@@ -1,4 +1,4 @@
-# Pixel Pomodoro Pet 🐣🍅
+# Pixel Pomodoro Pet 🐣
 
 **Pixel Pomodoro Pet** is a cozy, retro-styled React productivity web application that gamifies the Pomodoro Technique. Stay focused on your tasks, grow and hatch pixel art eggs, collect adorable companion pets, level them up, and build daily focus streaks—all accompanied by synthesized 8-bit sound effects.
 
