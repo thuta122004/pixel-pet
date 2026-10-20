@@ -86,6 +86,33 @@ const sfx = {
     ),
 };
 
+/* ───────── Screen Wake Lock API Manager ───────── */
+let wakeLockObj = null;
+
+async function requestScreenWakeLock() {
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLockObj = await navigator.wakeLock.request('screen');
+      wakeLockObj.addEventListener('release', () => {
+        wakeLockObj = null;
+      });
+    } catch (err) {
+      console.warn(`Wake Lock error: ${err.name}, ${err.message}`);
+    }
+  }
+}
+
+async function releaseScreenWakeLock() {
+  if (wakeLockObj !== null) {
+    try {
+      await wakeLockObj.release();
+      wakeLockObj = null;
+    } catch (err) {
+      console.warn(`Wake Lock release error: ${err.name}, ${err.message}`);
+    }
+  }
+}
+
 /* ───────── pixel art: 12×12 grids, '.' = transparent ───────── */
 const C = {
   o: "#3D262A",
@@ -497,6 +524,28 @@ export default function PixelPomodoroPet() {
       }
     }, 250);
     return () => clearInterval(id);
+  }, [running]);
+
+  // Manage Screen Wake Lock based on timer running state
+  useEffect(() => {
+    if (running) {
+      requestScreenWakeLock();
+    } else {
+      releaseScreenWakeLock();
+    }
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === "visible" && running) {
+        await requestScreenWakeLock();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      releaseScreenWakeLock();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [running]);
 
   // Page Visibility guard
