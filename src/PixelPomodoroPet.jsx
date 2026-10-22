@@ -14,6 +14,8 @@ import {
   Clock,
   Coins,
   Timer,
+  BookOpen,
+  Keyboard,
 } from "lucide-react";
 
 /* ───────── storage (localStorage with in-memory fallback for sandboxes) ───────── */
@@ -50,6 +52,7 @@ const DEFAULT = {
   pets: {},
   active: null,
   sound: true,
+  research: false,
 };
 
 /* ───────── Web Audio (synthesized, no files) ───────── */
@@ -111,6 +114,59 @@ async function releaseScreenWakeLock() {
       console.warn(`Wake Lock release error: ${err.name}, ${err.message}`);
     }
   }
+}
+
+/* ───────── background-safe ticker ─────────
+   Browsers throttle setInterval in hidden tabs (down to once a minute), which
+   would delay the end-of-session alert. A Web Worker's timer isn't throttled
+   the same way, so research mode keeps ticking while you are on another tab.
+   Falls back to setInterval where workers are blocked. */
+function startTicker(cb) {
+  let stop = () => {};
+  const fallback = () => {
+    const id = setInterval(cb, 250);
+    stop = () => clearInterval(id);
+  };
+  try {
+    const url = URL.createObjectURL(
+      new Blob(["setInterval(function(){postMessage(0)},250)"], {
+        type: "text/javascript",
+      }),
+    );
+    const w = new Worker(url);
+    w.onmessage = cb;
+    w.onerror = () => {
+      w.terminate();
+      URL.revokeObjectURL(url);
+      fallback();
+    };
+    stop = () => {
+      w.terminate();
+      URL.revokeObjectURL(url);
+    };
+  } catch (e) {
+    fallback();
+  }
+  return () => stop();
+}
+
+function askNotifyPermission() {
+  try {
+    if (
+      typeof Notification !== "undefined" &&
+      Notification.permission === "default"
+    )
+      Notification.requestPermission();
+  } catch (e) {}
+}
+function notify(body) {
+  try {
+    if (
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted"
+    )
+      new Notification("Pixel Pomodoro Pet", { body });
+  } catch (e) {}
 }
 
 /* ───────── pixel art: 12×12 grids, '.' = transparent ───────── */
@@ -340,6 +396,11 @@ function Egg({ stage = 0, size = 140 }) {
 }
 
 const CSS = `
+html,body{margin:0}
+.pp-root,.pp-root *,.pp-root *::before,.pp-root *::after{box-sizing:border-box}
+.pp-root h1,.pp-root h2,.pp-root p{margin:0}
+.pp-root button,.pp-root input,.pp-root textarea{font-family:inherit}
+.fixed{position:fixed}.absolute{position:absolute}.relative{position:relative}.inset-0{inset:0}.z-40{z-index:40}.z-50{z-index:50}.flex{display:flex}.grid{display:grid}.inline-block{display:inline-block}.flex-1{flex:1 1 0%}.flex-wrap{flex-wrap:wrap}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.items-center{align-items:center}.items-end{align-items:flex-end}.items-start{align-items:flex-start}.justify-between{justify-content:space-between}.justify-center{justify-content:center}.gap-1{gap:.25rem}.gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}.mx-auto{margin-left:auto;margin-right:auto}.my-3{margin-top:.75rem;margin-bottom:.75rem}.mb-3{margin-bottom:.75rem}.mb-4{margin-bottom:1rem}.mb-5{margin-bottom:1.25rem}.mt-1{margin-top:.25rem}.mt-2{margin-top:.5rem}.mt-3{margin-top:.75rem}.mt-4{margin-top:1rem}.mt-5{margin-top:1.25rem}.mt-6{margin-top:1.5rem}.p-3{padding:.75rem}.p-4{padding:1rem}.p-5{padding:1.25rem}.p-6{padding:1.5rem}.pt-3{padding-top:.75rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.py-3{padding-top:.75rem;padding-bottom:.75rem}.w-full{width:100%}.min-w-0{min-width:0}.overflow-hidden{overflow:hidden}.pointer-events-none{pointer-events:none}.text-center{text-align:center}.text-xs{font-size:.75rem;line-height:1rem}.text-sm{font-size:.875rem;line-height:1.25rem}.text-lg{font-size:1.125rem;line-height:1.75rem}.text-xl{font-size:1.25rem;line-height:1.75rem}.font-bold{font-weight:700}.font-extrabold{font-weight:800}.font-black{font-weight:900}
 .pp-root{min-height:100vh;color:#4A2E35;font-family:ui-rounded,'Nunito','Segoe UI',system-ui,sans-serif;background-color:#FFF0F5;background-image:radial-gradient(#FDE2E4 2px,transparent 2px);background-size:22px 22px}
 .pp-pixel{font-family:'Courier New',ui-monospace,monospace;font-weight:900;letter-spacing:.06em}
 .pp-pix{image-rendering:crisp-edges;image-rendering:pixelated}
@@ -348,11 +409,13 @@ const CSS = `
 .pp-btn:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 #3D262A}
 .pp-btn:disabled{opacity:.45;cursor:not-allowed}
 .pp-btn:focus-visible,.pp-in:focus-visible{outline:3px dashed #7A4FA3;outline-offset:2px}
-.pp-btn.lav{background:#E2D4F0}.pp-btn.mint{background:#C9F0DD}.pp-btn.gold{background:#FFE9A8}.pp-btn.cream{background:#FFFDF9}.pp-btn.sm{padding:.3rem .65rem;font-size:.8rem;border-radius:10px}
+.pp-btn.lav{background:#E2D4F0}.pp-btn.mint{background:#C9F0DD}.pp-btn.gold{background:#FFE9A8}.pp-btn.cream{background:#FFFDF9}.pp-btn.sm{padding:.3rem .5rem;font-size:.8rem;border-radius:10px}
+.pp-btn.on{transform:translateY(3px);box-shadow:0 1px 0 #3D262A}
 .pp-chip{display:inline-flex;align-items:center;gap:.35rem;background:#FFFDF9;border:3px solid #3D262A;border-radius:999px;padding:.15rem .65rem;font-weight:800;font-size:.85rem}
 .pp-lcd{background:#FDE2E4;border:3px solid #3D262A;border-radius:14px;box-shadow:inset 0 4px 0 rgba(255,255,255,.6)}
 .pp-in{width:5rem;background:#FFFDF9;border:3px solid #3D262A;border-radius:10px;padding:.3rem .5rem;font-weight:800;text-align:center;color:#3D262A}
 .pp-bar{display:flex;gap:3px}.pp-bar i{flex:1;height:14px;background:#FFFDF9;border:2px solid #3D262A}.pp-bar i.on{background:#FFB6C1}
+.pp-rule{border-top:2px dashed #3D262A}
 @keyframes pp-wobble{0%,100%{transform:rotate(0)}3%{transform:rotate(-9deg)}6%{transform:rotate(9deg)}9%{transform:rotate(-6deg)}12%{transform:rotate(6deg)}15%{transform:rotate(0)}}
 @keyframes pp-fast{0%,100%{transform:rotate(0)}25%{transform:rotate(-12deg)}75%{transform:rotate(12deg)}}
 @keyframes pp-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
@@ -365,6 +428,7 @@ const CSS = `
 .pp-bounce{animation:pp-bounce 1.1s steps(2,jump-none) infinite}
 .pp-pop{animation:pp-pop .5s ease-out both}
 @media (prefers-reduced-motion:reduce){.pp-wobble,.pp-wobble-q,.pp-fast,.pp-bounce,.pp-pop{animation:none}}
+@media (min-width:640px){.sm\:p-5{padding:1.25rem}.sm\:p-6{padding:1.5rem}.sm\:gap-8{gap:2rem}.sm\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}}
 `;
 
 const PRESETS = [
@@ -376,6 +440,16 @@ const PRESETS = [
 const stageName = (l) =>
   l >= 10 ? "Royal form" : l >= 5 ? "Ribbon form" : "Baby form";
 const fmtMin = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`);
+const fmtSpan = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
+const KEYS = [
+  ["Space", "Start / pause"],
+  ["1 · 2 · 3 · 4", "Focus, short break, long break, custom"],
+  ["R", "Research mode on / off"],
+  ["P", "Switch between Focus and Pets"],
+  ["M", "Mute / unmute"],
+  ["?", "This list"],
+  ["Esc", "Close dialogs"],
+];
 
 function Confetti() {
   const bits = useMemo(
@@ -423,7 +497,7 @@ function Modal({ title, onClose, children }) {
     >
       <div
         className="pp-card p-5 w-full"
-        style={{ maxWidth: 420 }}
+        style={{ maxWidth: 460, maxHeight: "90vh", overflow: "auto" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
@@ -455,8 +529,12 @@ export default function PixelPomodoroPet() {
   const [settings, setSettings] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [blink, setBlink] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [ping, setPing] = useState(null);
   const endAt = useRef(0),
     away = useRef(false),
+    goneAt = useRef(0),
+    onKey = useRef(null),
     done = useRef(false),
     fin = useRef(null),
     S = useRef({});
@@ -480,11 +558,15 @@ export default function PixelPomodoroPet() {
           ? 1
           : 0
     : 0;
-  S.current = { running, isFocus };
+  S.current = { running, isFocus, research: G.research };
   const say = (msg, kind = "ok") => setToast({ msg, kind, id: Date.now() });
   const click = (fn) => () => {
     sfx.click(G.sound);
     fn && fn();
+  };
+  const alertAway = (msg) => {
+    setPing(msg);
+    notify(msg);
   };
 
   useEffect(() => {
@@ -505,25 +587,28 @@ export default function PixelPomodoroPet() {
   const mm = String(Math.floor(left / 60)).padStart(2, "0"),
     ss = String(left % 60).padStart(2, "0");
   useEffect(() => {
-    document.title = running
-      ? `${mm}:${ss} · Pixel Pomodoro Pet`
-      : "Pixel Pomodoro Pet";
-  }, [running, mm, ss]);
+    document.title = ping
+      ? `${ping} · Pixel Pomodoro Pet`
+      : running
+        ? `${mm}:${ss} · Pixel Pomodoro Pet`
+        : "Pixel Pomodoro Pet";
+  }, [running, mm, ss, ping]);
 
-  // countdown (timestamp based, so it stays accurate)
+  // countdown (timestamp based, so it stays accurate; the ticker keeps
+  // running while the tab is hidden)
   useEffect(() => {
     if (!running) return;
-    const id = setInterval(() => {
+    const stop = startTicker(() => {
       const r = Math.max(0, Math.ceil((endAt.current - Date.now()) / 1000));
       setLeft(r);
       if (r <= 0 && !done.current) {
         done.current = true;
-        clearInterval(id);
+        stop();
         setRunning(false);
         fin.current && fin.current();
       }
-    }, 250);
-    return () => clearInterval(id);
+    });
+    return stop;
   }, [running]);
 
   // Manage Screen Wake Lock based on timer running state
@@ -548,45 +633,85 @@ export default function PixelPomodoroPet() {
     };
   }, [running]);
 
-  // Page Visibility guard
+  // Page Visibility guard: leaving the tab pauses the egg, unless research
+  // mode is on, in which case it keeps growing in the background
   useEffect(() => {
     const onVis = () => {
       const s = S.current;
       if (document.hidden) {
-        if (s.running && s.isFocus) {
-          setLeft(Math.max(1, Math.ceil((endAt.current - Date.now()) / 1000)));
-          setRunning(false);
-          away.current = true;
+        if (!s.running || !s.isFocus) return;
+        if (s.research) {
+          goneAt.current = Date.now();
+          return;
         }
-      } else if (away.current) {
+        setLeft(Math.max(1, Math.ceil((endAt.current - Date.now()) / 1000)));
+        setRunning(false);
+        away.current = true;
+        return;
+      }
+      setPing(null);
+      if (away.current) {
         away.current = false;
         say(
-          "Your egg paused while you were away! Stay on this tab to continue growing!",
+          "Your egg paused while you were away! Stay on this tab, or turn on research mode to keep it growing.",
           "warn",
         );
+      } else if (goneAt.current) {
+        const secs = Math.round((Date.now() - goneAt.current) / 1000);
+        goneAt.current = 0;
+        if (S.current.running)
+          say(
+            `Welcome back! Your egg kept growing for ${fmtSpan(secs)} while you researched.`,
+          );
       }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
+  // keyboard shortcuts (handler lives in a ref so it always sees fresh state)
+  useEffect(() => {
+    const h = (e) => onKey.current && onKey.current(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
   // hatch reveal
   useEffect(() => {
     if (!hatch || hatch.stage !== 0) return;
-    const t = setTimeout(() => {
-      setHatch((h) => h && { ...h, stage: 1 });
-      sfx.chime(G.sound);
-    }, 1700);
-    return () => clearTimeout(t);
+    let t;
+    const reveal = () => {
+      t = setTimeout(() => {
+        setHatch((h) => h && { ...h, stage: 1 });
+        sfx.chime(G.sound);
+      }, 1700);
+    };
+    const onShow = () => {
+      if (document.hidden) return;
+      document.removeEventListener("visibilitychange", onShow);
+      reveal();
+    };
+    if (document.hidden) document.addEventListener("visibilitychange", onShow);
+    else reveal();
+    return () => {
+      document.removeEventListener("visibilitychange", onShow);
+      clearTimeout(t);
+    };
   }, [hatch]);
 
   const finish = () => {
     const mins = Math.round(total / 60);
+    const gone = document.hidden;
     setLeft(total);
     if (!isFocus) {
       sfx.chime(G.sound);
       say("Break's over. Ready for another focus round?");
+      if (gone) alertAway("🔔 Break's over!");
       return;
+    }
+    if (gone) {
+      sfx.chime(G.sound);
+      alertAway("🐣 Your egg is ready to hatch!");
     }
     const pet = PETS[Math.floor(Math.random() * PETS.length)];
     const isNew = !G.pets[pet.id];
@@ -638,6 +763,48 @@ export default function PixelPomodoroPet() {
     if (started && isFocus)
       say("Session abandoned. Your egg is waiting for you.", "warn");
   };
+  const pause = () => setRunning(false);
+  const toggleSound = () => {
+    setG({ ...G, sound: !G.sound });
+    sfx.click(!G.sound);
+  };
+  const toggleResearch = () => {
+    const on = !G.research;
+    setG({ ...G, research: on });
+    sfx.click(G.sound);
+    if (on) askNotifyPermission();
+    say(
+      on
+        ? "Research mode on. Switch tabs freely, your egg keeps growing."
+        : "Research mode off. Leaving this tab pauses your egg.",
+      on ? "ok" : "warn",
+    );
+  };
+  onKey.current = (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    const t = e.target;
+    if (t.closest && t.closest("input,textarea,select")) return;
+    if (e.key === "Escape") {
+      setHelp(false);
+      setSettings(false);
+      setConfirm(false);
+      return;
+    }
+    if (hatch || settings || help) return;
+    if (e.key === "?") return click(() => setHelp(true))();
+    const k = e.key.toLowerCase();
+    if (k === " ") {
+      if (t.closest && t.closest("button,a")) return;
+      e.preventDefault();
+      if (tab === "focus") click(running ? pause : start)();
+    } else if (k === "r") toggleResearch();
+    else if (k === "m") toggleSound();
+    else if (k === "p")
+      click(() => setTab(tab === "focus" ? "gallery" : "focus"))();
+    else if (tab === "focus" && !running && left === total && /^[1-4]$/.test(k))
+      click(() => selectMode(PRESETS[+k - 1][0]))();
+  };
+
   const levelUp = (id, via) => {
     const p = G.pets[id],
       pet = PETS.find((x) => x.id === id);
@@ -679,19 +846,31 @@ export default function PixelPomodoroPet() {
 
       {toast && (
         <div
-          role="status"
-          className="fixed z-50 pp-card p-3 text-sm font-bold"
           style={{
-            top: 12,
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: "min(92vw,420px)",
-            background: toast.kind === "warn" ? "#E2D4F0" : "#C9F0DD",
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: 20,
+            display: "flex",
+            justifyContent: "center",
+            padding: "0 12px",
+            pointerEvents: "none",
+            zIndex: 70,
           }}
         >
-          <div className="flex gap-2 items-start">
-            <Heart size={18} style={{ flexShrink: 0, marginTop: 2 }} />
-            <span>{toast.msg}</span>
+          <div
+            key={toast.id}
+            role="status"
+            className="pp-card pp-pop p-3 text-sm font-bold"
+            style={{
+              width: "min(92vw,420px)",
+              background: toast.kind === "warn" ? "#E2D4F0" : "#FFE9A8",
+            }}
+          >
+            <div className="flex gap-2 items-start">
+              <Heart size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>{toast.msg}</span>
+            </div>
           </div>
         </div>
       )}
@@ -699,15 +878,17 @@ export default function PixelPomodoroPet() {
       <div className="mx-auto p-3 sm:p-5" style={{ maxWidth: 760 }}>
         {/* top bar */}
         <header className="flex items-center justify-between gap-2 flex-wrap mb-4">
-          <div className="flex items-center gap-2">
-            <Egg size={34} />
-            <h1
-              className="pp-pixel text-lg sm:text-2xl"
-              style={{ textShadow: "2px 2px 0 #FFB6C1" }}
-            >
-              Pixel Pomodoro Pet
-            </h1>
-          </div>
+          <h1
+            className="pp-pixel flex items-center gap-2"
+            style={{ fontSize: "1.45rem", textShadow: "3px 3px 0 #FFB6C1" }}
+          >
+            {ap ? (
+              <Sprite pet={ap} lvl={alv} size={34} blink={blink} />
+            ) : (
+              <Egg size={34} />
+            )}
+            PIXEL POMODORO PET
+          </h1>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="pp-chip" title="Pet coins">
               <Coins size={15} />
@@ -720,12 +901,17 @@ export default function PixelPomodoroPet() {
             <button
               className="pp-btn cream sm"
               aria-label={G.sound ? "Mute" : "Unmute"}
-              onClick={() => {
-                setG({ ...G, sound: !G.sound });
-                sfx.click(!G.sound);
-              }}
+              onClick={toggleSound}
             >
               {G.sound ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            </button>
+            <button
+              className="pp-btn cream sm"
+              title="Keyboard shortcuts (?)"
+              aria-label="Keyboard shortcuts"
+              onClick={click(() => setHelp(true))}
+            >
+              <Keyboard size={16} />
             </button>
             <button
               className="pp-btn cream sm"
@@ -793,6 +979,18 @@ export default function PixelPomodoroPet() {
                 </button>
               </div>
             )}
+
+            <div className="flex items-center justify-center gap-2 flex-wrap mb-4">
+              <button
+                className={`pp-btn sm ${G.research ? "mint on" : "cream"}`}
+                aria-pressed={G.research}
+                title="Research mode (R)"
+                onClick={toggleResearch}
+              >
+                <BookOpen size={14} />
+                Research mode: {G.research ? "On" : "Off"}
+              </button>
+            </div>
 
             {/* stage: egg + companion */}
             <div
@@ -871,7 +1069,9 @@ export default function PixelPomodoroPet() {
               <p className="text-xs font-bold mt-1">
                 {running
                   ? isFocus
-                    ? "Growing your egg…"
+                    ? G.research
+                      ? "Growing your egg… feel free to switch tabs"
+                      : "Growing your egg…"
                     : "Resting…"
                   : left < total
                     ? "Paused"
@@ -891,9 +1091,7 @@ export default function PixelPomodoroPet() {
                 <button
                   className="pp-btn lav"
                   style={{ minWidth: 130 }}
-                  onClick={click(() => {
-                    setRunning(false);
-                  })}
+                  onClick={click(pause)}
                 >
                   <Pause size={18} />
                   Pause
@@ -934,7 +1132,7 @@ export default function PixelPomodoroPet() {
           </main>
         ) : (
           <main>
-            <p className="text-sm font-bold mb-3">
+            <p className="text-sm font-bold pb-3">
               Pick a buddy to sit beside your timer. Spend coins or XP to level
               them up; they evolve at level 5 and 10.
             </p>
@@ -1021,10 +1219,12 @@ export default function PixelPomodoroPet() {
           </main>
         )}
         <p
-          className="text-center text-xs font-bold mt-5"
+          className="text-center text-xs font-bold pt-5"
           style={{ opacity: 0.7 }}
         >
-          Stay on this tab while you focus. Leaving pauses your egg.
+          {G.research
+            ? "Research mode is on. Switch tabs freely, your egg keeps growing in the background."
+            : "Stay on this tab while you focus. Leaving pauses your egg, or turn on research mode."}
         </p>
       </div>
 
@@ -1094,10 +1294,7 @@ export default function PixelPomodoroPet() {
             <span className="font-bold">Sound effects</span>
             <button
               className="pp-btn sm cream"
-              onClick={() => {
-                setG({ ...G, sound: !G.sound });
-                sfx.click(!G.sound);
-              }}
+              onClick={toggleSound}
             >
               {G.sound ? (
                 <>
@@ -1112,7 +1309,7 @@ export default function PixelPomodoroPet() {
               )}
             </button>
           </div>
-          <p className="text-xs font-bold mb-3">
+          <p className="text-xs font-bold pb-3">
             Progress is saved in this browser. In sandboxed previews that block
             storage, it lasts until you close the page.
           </p>
@@ -1149,12 +1346,41 @@ export default function PixelPomodoroPet() {
             </div>
           )}
 
-          <div className="border-t-2 border-dashed border-[#3D262A] pt-3 mt-4 text-center">
+          <div className="pp-rule pt-3 mt-4 text-center">
             <p className="text-xs font-bold" style={{ opacity: 0.65 }}>
               Pixel Pomodoro Pet · v1.0.0
               <br />
               Designed & Developed by Thu Ta
             </p>
+          </div>
+        </Modal>
+      )}
+
+      {help && (
+        <Modal title="Keyboard shortcuts" onClose={() => setHelp(false)}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "auto 1fr",
+              gap: "10px 14px",
+              alignItems: "center",
+            }}
+          >
+            {KEYS.map(([k, d]) => (
+              <React.Fragment key={k}>
+                <span
+                  className="pp-chip pp-pixel"
+                  style={{
+                    justifySelf: "start",
+                    fontSize: ".72rem",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {k}
+                </span>
+                <span className="text-sm font-bold">{d}</span>
+              </React.Fragment>
+            ))}
           </div>
         </Modal>
       )}
